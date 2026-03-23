@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>TabVault</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+
+  body{
+    width:300px;
+    background:#07060E;
+    color:#F0ECFF;
+    font-family:'Segoe UI',system-ui,sans-serif;
+    padding:0 0 16px;
+  }
+
+  /* Header */
+  .header{
+    background:linear-gradient(135deg,#0D0B1A,#131126);
+    padding:16px 18px 14px;
+    border-bottom:1px solid rgba(255,255,255,0.07);
+    display:flex;align-items:center;gap:10px;
+  }
+  .logo-box{
+    width:34px;height:34px;border-radius:10px;
+    border:1.5px solid rgba(200,255,87,0.4);
+    display:flex;align-items:center;justify-content:center;
+    font-size:17px;background:rgba(200,255,87,0.08);
+  }
+  .logo-text{font-size:17px;font-weight:900;letter-spacing:-0.5px;}
+  .logo-text span{color:#C8FF57;}
+  .version{font-size:9px;color:#4A4670;font-family:monospace;margin-left:auto;}
+
+  /* Status pill */
+  .status-wrap{padding:10px 16px 0;}
+  .status{
+    display:flex;align-items:center;gap:7px;
+    padding:7px 12px;border-radius:10px;
+    font-size:11px;font-weight:700;
+  }
+  .status.online{background:rgba(200,255,87,0.1);border:1px solid rgba(200,255,87,0.25);color:#C8FF57;}
+  .status.offline{background:rgba(255,107,157,0.1);border:1px solid rgba(255,107,157,0.25);color:#FF6B9D;}
+  .status-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+  .status.online .status-dot{background:#C8FF57;animation:blink 2s infinite;}
+  .status.offline .status-dot{background:#FF6B9D;}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+
+  /* Stats */
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px 16px 0;}
+  .stat{
+    background:#0D0B1A;border:1px solid rgba(255,255,255,0.07);
+    border-radius:12px;padding:12px;
+  }
+  .stat-val{font-size:22px;font-weight:900;font-family:monospace;line-height:1;}
+  .stat-label{font-size:10px;color:#4A4670;margin-top:4px;text-transform:uppercase;letter-spacing:.5px;}
+
+  /* Profile section */
+  .profile-wrap{padding:10px 16px 0;}
+  .profile-box{
+    display:flex;align-items:center;gap:10px;
+    background:#0D0B1A;border:1px solid rgba(255,255,255,0.07);
+    border-radius:12px;padding:10px 14px;
+  }
+  .profile-avatar{
+    width:28px;height:28px;border-radius:50%;
+    background:linear-gradient(135deg,#A78BFA,#C8FF57);
+    display:flex;align-items:center;justify-content:center;
+    font-size:12px;font-weight:900;color:#07060E;flex-shrink:0;
+  }
+  .profile-info{}
+  .profile-name{font-size:12px;font-weight:700;}
+  .profile-sub{font-size:10px;color:#4A4670;margin-top:1px;}
+
+  /* Browser mini pills */
+  .browsers-wrap{padding:10px 16px 0;}
+  .browsers-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#4A4670;font-family:monospace;margin-bottom:7px;}
+  .browsers{display:flex;gap:6px;flex-wrap:wrap;}
+  .b-pill{
+    display:flex;align-items:center;gap:5px;
+    padding:4px 10px;border-radius:99px;
+    font-size:10px;font-weight:700;font-family:monospace;
+    border:1px solid;
+  }
+
+  /* Queue warning */
+  .queue-warn{
+    margin:10px 16px 0;padding:8px 12px;
+    background:rgba(255,209,102,0.1);border:1px solid rgba(255,209,102,0.25);
+    border-radius:10px;font-size:11px;color:#FFD166;
+  }
+
+  /* Buttons */
+  .btns{display:flex;gap:8px;padding:12px 16px 0;}
+  .btn{
+    flex:1;padding:10px;border-radius:12px;
+    font-size:12px;font-weight:800;cursor:pointer;
+    transition:all .15s;border:none;
+  }
+  .btn-primary{
+    background:rgba(200,255,87,0.15);
+    border:1.5px solid rgba(200,255,87,0.35);
+    color:#C8FF57;
+  }
+  .btn-primary:hover{background:rgba(200,255,87,0.25);}
+  .btn-secondary{
+    background:rgba(255,255,255,0.05);
+    border:1.5px solid rgba(255,255,255,0.1);
+    color:#8A85B0;
+  }
+  .btn-secondary:hover{background:rgba(255,255,255,0.08);}
+
+  .loading{opacity:.5;font-style:italic;}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="logo-box">🛡</div>
+  <div class="logo-text">Tab<span>Vault</span></div>
+  <div class="version">v0.2.0</div>
+</div>
+
+<!-- Status -->
+<div class="status-wrap">
+  <div class="status offline" id="status">
+    <div class="status-dot"></div>
+    <span id="status-text">Connecting to TabVault…</span>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="stats">
+  <div class="stat">
+    <div class="stat-val" id="tab-count" style="color:#FFD166">–</div>
+    <div class="stat-label">Open Tabs</div>
+  </div>
+  <div class="stat">
+    <div class="stat-val" id="usage-time" style="color:#C8FF57">–</div>
+    <div class="stat-label">Today</div>
+  </div>
+  <div class="stat">
+    <div class="stat-val" id="visit-count" style="color:#00E5CC">–</div>
+    <div class="stat-label">Visits Today</div>
+  </div>
+  <div class="stat">
+    <div class="stat-val" id="queue-count" style="color:#A78BFA">–</div>
+    <div class="stat-label">Queued</div>
+  </div>
+</div>
+
+<!-- Profile -->
+<div class="profile-wrap">
+  <div class="profile-box">
+    <div class="profile-avatar" id="profile-avatar">?</div>
+    <div class="profile-info">
+      <div class="profile-name" id="profile-name">Detecting…</div>
+      <div class="profile-sub" id="browser-name">Loading browser info</div>
+    </div>
+  </div>
+</div>
+
+<!-- Browser pills -->
+<div class="browsers-wrap">
+  <div class="browsers-label">Active Browsers</div>
+  <div class="browsers" id="browsers-list">
+    <div class="loading" style="font-size:11px;color:#4A4670;">Loading…</div>
+  </div>
+</div>
+
+<!-- Queue warning (shown if > 50 events queued) -->
+<div class="queue-warn" id="queue-warn" style="display:none">
+  ⚠️ <span id="queue-warn-text"></span> events queued — start TabVault app to sync
+</div>
+
+<!-- Buttons -->
+<div class="btns">
+  <button class="btn btn-primary" id="btn-dashboard">Open Dashboard →</button>
+  <button class="btn btn-secondary" id="btn-sync">Sync Now</button>
+</div>
+
+<script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "TabVault",
+  "short_name": "TabVault",
+  "version": "0.2.0",
+  "description": "Monitor all your browsers in one place. All data stays local on your machine.",
+  "icons": {
+    "16":  "icons/icon16.svg",
+    "32":  "icons/icon32.svg",
+    "48":  "icons/icon48.svg",
+    "128": "icons/icon128.svg"
+  },
+  "permissions": [
+    "tabs",
+    "history",
+    "storage",
+    "identity",
+    "alarms",
+    "windows",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "TabVault",
+    "default_icon": {
+      "16":  "icons/icon16.svg",
+      "32":  "icons/icon32.svg",
+      "48":  "icons/icon48.svg",
+      "128": "icons/icon128.svg"
+    }
+  }
+}

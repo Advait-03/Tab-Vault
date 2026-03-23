@@ -1,0 +1,85 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./tabvault.db"
+}
+
+model Tab {
+  id        Int       @id @default(autoincrement())
+  tabId     Int
+  browser   String
+  profile   String
+  title     String
+  url       String
+  favicon   String?
+  openedAt  DateTime  @default(now())
+  closedAt  DateTime?
+  timeSpent Int       @default(0)
+  isOpen    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  @@index([browser, profile])
+  @@index([isOpen])
+  @@index([openedAt])
+}
+
+model History {
+  id         Int       @id @default(autoincrement())
+  browser    String
+  profile    String
+  url        String
+  title      String
+  favicon    String?
+  visitedAt  DateTime  @default(now())
+  duration   Int       @default(0)
+  categoryId Int?
+  category   Category? @relation(fields: [categoryId], references: [id])
+  createdAt  DateTime  @default(now())
+  @@index([browser, profile, visitedAt])
+  @@index([visitedAt])
+  @@index([categoryId])
+}
+
+model Category {
+  id        Int       @id @default(autoincrement())
+  name      String
+  emoji     String    @default("📁")
+  color     String    @default("#8B86AE")
+  createdAt DateTime  @default(now())
+  history   History[]
+}
+
+model DailyStats {
+  id          Int      @id @default(autoincrement())
+  date        String
+  browser     String
+  profile     String
+  totalTime   Int      @default(0)
+  tabsOpened  Int      @default(0)
+  visits      Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@unique([date, browser, profile])
+  @@index([date])
+}
+
+model DetectedBrowser {
+  id                 Int      @id @default(autoincrement())
+  browserId          String   @unique
+  name               String
+  executablePath     String
+  version            String?
+  extensionInstalled Boolean  @default(false)
+  isEnabled          Boolean  @default(true)
+  detectedAt         DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model AppSettings {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
