@@ -35,7 +35,13 @@ async function getBackgroundStatus() {
 }
 
 async function loadPopup() {
-  const background = await getBackgroundStatus()
+  const background = (await getBackgroundStatus()) || {
+    browser: 'brave',
+    profile: 'Default',
+    isServerUp: false,
+    queueSize: 0,
+    openTabCount: 0,
+  }
   document.getElementById('browser-select').value = background.browser || 'brave'
 
   const profile = background.profile || 'Default'
@@ -127,14 +133,54 @@ document.getElementById('btn-apply-browser').addEventListener('click', async () 
 
 document.getElementById('btn-save-profile').addEventListener('click', async () => {
   const button = document.getElementById('btn-save-profile')
-  const profile = document.getElementById('profile-input').value
+  const profile = document.getElementById('profile-input').value.trim()
+  const previousProfile = document.getElementById('profile-name').textContent || 'Default'
+  const browser = document.getElementById('browser-select').value
   button.textContent = 'Saving...'
   button.disabled = true
   try {
     await chrome.runtime.sendMessage({ type: 'set_profile_name', profile })
+    await fetch('http://localhost:3000/api/profiles', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        browser,
+        previousProfile,
+        nextProfile: profile || 'Default',
+      }),
+    })
     button.textContent = 'Saved'
     setTimeout(() => {
       button.textContent = 'Save profile name'
+      button.disabled = false
+      loadPopup()
+    }, 800)
+  } catch {
+    button.textContent = 'Retry'
+    button.disabled = false
+  }
+})
+
+document.getElementById('btn-clear-profile').addEventListener('click', async () => {
+  const button = document.getElementById('btn-clear-profile')
+  const previousProfile = document.getElementById('profile-name').textContent || 'Default'
+  const browser = document.getElementById('browser-select').value
+  button.textContent = 'Clearing...'
+  button.disabled = true
+  try {
+    await chrome.runtime.sendMessage({ type: 'set_profile_name', profile: 'Default' })
+    await fetch('http://localhost:3000/api/profiles', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        browser,
+        previousProfile,
+        nextProfile: 'Default',
+      }),
+    })
+    button.textContent = 'Cleared'
+    setTimeout(() => {
+      button.textContent = 'Clear custom profile name'
       button.disabled = false
       loadPopup()
     }, 800)

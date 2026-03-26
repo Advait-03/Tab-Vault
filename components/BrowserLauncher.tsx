@@ -27,6 +27,7 @@ export default function BrowserLauncher() {
       hasExtension: browser.extensionInstalled,
       version: browser.version,
     }))
+    .sort((left, right) => (tabsByBrowser[right.id] ?? 0) - (tabsByBrowser[left.id] ?? 0))
 
   function handleLaunch(id: string) {
     selectBrowser(id)

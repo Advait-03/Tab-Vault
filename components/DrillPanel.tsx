@@ -66,7 +66,9 @@ function BrowserList({ onSelect }: { onSelect: (browser: string) => void }) {
 
   return (
     <div className="animate-slide-right">
-      {trackedBrowsers.map((browser) => {
+      {[...trackedBrowsers]
+        .sort((left, right) => (tabsByBrowser[right.browserId] ?? 0) - (tabsByBrowser[left.browserId] ?? 0))
+        .map((browser) => {
         const browserId = browser.browserId
         const color = BROWSER_COLORS[browserId] ?? '#1a73e8'
         return (
