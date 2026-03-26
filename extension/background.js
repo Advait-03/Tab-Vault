@@ -1,292 +1,332 @@
-// TabVault — extension/background.js
-// The always-running brain. Handles ALL browser events.
-// Batches events and sends to TabVault app every 30 seconds.
-
 const SERVER = 'http://localhost:3000/api/ingest'
 const BATCH_ALARM = 'tabvault-flush'
+const SNAPSHOT_ALARM = 'tabvault-snapshot'
 
-// ── In-memory state ─────────────────────────────────────
-let queue        = []   // events waiting to be sent
-let activeTabId  = null // currently focused tab
-let focusStart   = null // when current tab got focus
-let profile      = 'Default'
-let browser      = 'chrome'
-let isServerUp   = false
-let tabTitles    = {}   // tabId -> {title, url} cache
+let queue = []
+let activeTabId = null
+let focusStart = null
+let profile = 'Default'
+let browser = 'brave'
+let isServerUp = false
+let tabTitles = {}
 
-// ── Detect which browser we're in ───────────────────────
-function detectBrowser() {
-  const ua = navigator.userAgent
-  // Check order: most specific first
-  if (ua.includes('Edg/'))   return 'edge'
-  if (ua.includes('Firefox'))return 'firefox'
-  if (ua.includes('Brave'))  return 'brave'  // must be before Chrome check
-  if (ua.includes('OPR/'))   return 'opera'  // Opera has OPR/ in UA
-  if (ua.includes('Safari')) return 'safari'
-  if (ua.includes('Chrome')) return 'chrome'
-  // Fallback to detecting from environment if UA detection fails
-  if (typeof browser !== 'undefined' && browser.runtime) {
-    if (navigator.vendor === 'Google Inc.') return 'chrome'
-    if (navigator.vendor === 'Apple Computer, Inc.') return 'safari'
-  }
-  console.warn('[TabVault] Could not detect browser, defaulting to chrome')
-  return 'chrome'
+async function detectBrowser() {
+  try {
+    if (navigator.userAgentData?.brands?.length) {
+      const brands = navigator.userAgentData.brands.map((entry) => entry.brand.toLowerCase())
+      if (brands.some((brand) => brand.includes('brave'))) return 'brave'
+      if (brands.some((brand) => brand.includes('edge'))) return 'edge'
+      if (brands.some((brand) => brand.includes('opera'))) return 'opera'
+      if (brands.some((brand) => brand.includes('firefox'))) return 'firefox'
+      if (brands.some((brand) => brand.includes('chrome'))) return 'chrome'
+    }
+  } catch {}
+
+  try {
+    if (navigator.brave && typeof navigator.brave.isBrave === 'function') {
+      const brave = await navigator.brave.isBrave()
+      if (brave) return 'brave'
+    }
+  } catch {}
+
+  const userAgent = navigator.userAgent
+  if (userAgent.includes('Edg/')) return 'edge'
+  if (userAgent.includes('OPR/')) return 'opera'
+  if (userAgent.includes('Firefox')) return 'firefox'
+  if (userAgent.includes('Brave')) return 'brave'
+  if (userAgent.includes('Chrome')) return 'chrome'
+
+  return 'brave'
 }
 
-// ── Detect current user profile ─────────────────────────
+function isTrackableUrl(url = '') {
+  if (!url) return false
+  return !(
+    url.startsWith('chrome://') ||
+    url.startsWith('brave://') ||
+    url.startsWith('edge://') ||
+    url.startsWith('opera://') ||
+    url.startsWith('about:') ||
+    url.startsWith('chrome-extension://') ||
+    url.startsWith('devtools://')
+  )
+}
+
+function normalizeTab(tab) {
+  return {
+    title: tab.title ?? '',
+    url: tab.url ?? '',
+  }
+}
+
+async function persistQueue() {
+  try {
+    await chrome.storage.local.set({ tabvault_queue: queue })
+  } catch {}
+}
+
+async function loadConfig() {
+  const stored = await chrome.storage.local.get([
+    'tabvault_profile',
+    'tabvault_profile_name',
+    'tabvault_browser_override',
+    'tabvault_queue',
+  ])
+
+  if (stored.tabvault_profile_name) {
+    profile = stored.tabvault_profile_name
+  } else if (stored.tabvault_profile) {
+    profile = stored.tabvault_profile
+  }
+
+  if (stored.tabvault_browser_override) {
+    browser = stored.tabvault_browser_override
+  } else {
+    browser = await detectBrowser()
+  }
+
+  if (stored.tabvault_queue?.length) {
+    queue = stored.tabvault_queue
+  }
+}
+
 async function detectProfile() {
   try {
     const info = await chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' })
     if (info?.email) {
       profile = info.email
+      await chrome.storage.local.set({ tabvault_profile: profile })
       return
     }
-  } catch (_) {}
-  // Fallback: read from storage if we saved it before
-  try {
-    const stored = await chrome.storage.local.get('tabvault_profile')
-    if (stored.tabvault_profile) {
-      profile = stored.tabvault_profile
-      return
-    }
-  } catch (_) {}
-  profile = 'Default'
+  } catch {}
+
+  if (!profile) {
+    profile = 'Default'
+  }
 }
 
-// ── Add event to queue ───────────────────────────────────
 function push(event) {
-  const entry = {
+  queue.push({
     ...event,
     browser,
     profile,
     timestamp: event.timestamp ?? Date.now(),
-  }
-  queue.push(entry)
-  // Persist queue to storage as safety backup
-  chrome.storage.local.set({ tabvault_queue: queue }).catch(() => {})
+  })
+  persistQueue()
 }
 
-// ── Flush queue to TabVault server ──────────────────────
 async function flush() {
-  if (queue.length === 0) return
+  if (!queue.length) return { ok: true, flushed: 0 }
 
   const batch = [...queue]
   queue = []
-  chrome.storage.local.set({ tabvault_queue: [] }).catch(() => {})
+  await persistQueue()
 
   try {
-    const res = await fetch(SERVER, {
-      method:  'POST',
+    const response = await fetch(SERVER, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ events: batch }),
+      body: JSON.stringify({ events: batch }),
     })
-    if (res.ok) {
-      isServerUp = true
-      const data = await res.json()
-      console.log(`[TabVault] Sent ${batch.length} events → server OK`)
-    } else {
-      throw new Error(`Server ${res.status}`)
+
+    if (!response.ok) {
+      throw new Error(`Server ${response.status}`)
     }
-  } catch (err) {
-    // Server not running — put events back
+
+    isServerUp = true
+    return { ok: true, flushed: batch.length }
+  } catch (error) {
     isServerUp = false
     queue = [...batch, ...queue]
-    chrome.storage.local.set({ tabvault_queue: queue }).catch(() => {})
-    console.warn('[TabVault] Server unreachable — queued for retry', err.message)
+    await persistQueue()
+    return { ok: false, flushed: 0, error: error.message }
   }
 }
 
-// ── Save time spent on current active tab ───────────────
 function saveCurrentTabTime() {
   if (!activeTabId || !focusStart) return
+
   const timeSpent = Date.now() - focusStart
-  if (timeSpent < 1000) return // ignore < 1 second
-  push({
-    type:      'tab_focused',
-    tabId:     activeTabId,
-    title:     tabTitles[activeTabId]?.title  ?? '',
-    url:       tabTitles[activeTabId]?.url    ?? '',
-    timeSpent, // ms
-  })
   focusStart = null
+
+  if (timeSpent < 1000) return
+
+  push({
+    type: 'tab_focused',
+    tabId: activeTabId,
+    title: tabTitles[activeTabId]?.title ?? '',
+    url: tabTitles[activeTabId]?.url ?? '',
+    timeSpent,
+  })
 }
 
-// ══════════════════════════════════════════════════════
-// TAB EVENTS
-// ══════════════════════════════════════════════════════
+async function captureOpenTabsSnapshot() {
+  const tabs = await chrome.tabs.query({})
+  for (const tab of tabs) {
+    if (!tab.id || !isTrackableUrl(tab.url)) continue
+    tabTitles[tab.id] = normalizeTab(tab)
+    push({
+      type: 'tab_snapshot',
+      tabId: tab.id,
+      title: tab.title ?? '',
+      url: tab.url ?? '',
+    })
+  }
+}
 
-// New tab opened
 chrome.tabs.onCreated.addListener((tab) => {
-  if (!tab.url || tab.url === 'chrome://newtab/' || tab.url.startsWith('chrome://')) return
-  tabTitles[tab.id] = { title: tab.title ?? '', url: tab.url ?? '' }
+  if (!tab.id || !isTrackableUrl(tab.url)) return
+  tabTitles[tab.id] = normalizeTab(tab)
   push({
-    type:  'tab_opened',
+    type: 'tab_opened',
     tabId: tab.id,
     title: tab.title ?? '',
-    url:   tab.url ?? '',
+    url: tab.url ?? '',
   })
 })
 
-// Tab URL or title changed
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status !== 'complete') return
-  if (!tab.url || tab.url.startsWith('chrome://')) return
-
-  tabTitles[tabId] = { title: tab.title ?? '', url: tab.url ?? '' }
+  if (changeInfo.status !== 'complete' || !isTrackableUrl(tab.url)) return
+  tabTitles[tabId] = normalizeTab(tab)
   push({
-    type:  'tab_updated',
+    type: 'tab_updated',
     tabId,
     title: tab.title ?? '',
-    url:   tab.url ?? '',
+    url: tab.url ?? '',
   })
 })
 
-// Tab closed
 chrome.tabs.onRemoved.addListener((tabId) => {
-  // If this was the active tab, save time first
   if (tabId === activeTabId) {
     saveCurrentTabTime()
     activeTabId = null
   }
+
   push({
-    type:      'tab_closed',
+    type: 'tab_closed',
     tabId,
-    title:     tabTitles[tabId]?.title ?? '',
-    url:       tabTitles[tabId]?.url   ?? '',
+    title: tabTitles[tabId]?.title ?? '',
+    url: tabTitles[tabId]?.url ?? '',
     timeSpent: 0,
   })
+
   delete tabTitles[tabId]
 })
 
-// User switches to a different tab
-chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
-  // Save time on the tab we're leaving
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   saveCurrentTabTime()
-
-  // Start tracking the new tab
   activeTabId = tabId
-  focusStart  = Date.now()
+  focusStart = Date.now()
 
-  // Get tab details
   try {
     const tab = await chrome.tabs.get(tabId)
-    if (tab.url && !tab.url.startsWith('chrome://')) {
-      tabTitles[tabId] = { title: tab.title ?? '', url: tab.url ?? '' }
-      // Only send tab_opened if this is a new tab, otherwise just track focus
-      // Don't create duplicate records by sending tab_opened for existing tabs
-      // The focus time will be recorded when user switches away in saveCurrentTabTime()
-    }
-  } catch (_) {}
+    if (!isTrackableUrl(tab.url)) return
+    tabTitles[tabId] = normalizeTab(tab)
+  } catch {}
 })
-
-// ══════════════════════════════════════════════════════
-// WINDOW EVENTS (track when user leaves/returns to browser)
-// ══════════════════════════════════════════════════════
 
 chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) {
-    // User switched away from browser — pause timer
     saveCurrentTabTime()
     focusStart = null
-  } else {
-    // User came back to browser — resume timer
-    if (activeTabId) {
-      focusStart = Date.now()
-    }
+    return
+  }
+
+  if (activeTabId) {
+    focusStart = Date.now()
   }
 })
 
-// ══════════════════════════════════════════════════════
-// HISTORY EVENTS
-// ══════════════════════════════════════════════════════
-
 chrome.history.onVisited.addListener((result) => {
-  if (!result.url) return
-  if (result.url.startsWith('chrome://')) return
-  if (result.url.startsWith('chrome-extension://')) return
-  if (result.url === 'about:blank') return
-
+  if (!isTrackableUrl(result.url)) return
   push({
-    type:     'history_visit',
-    tabId:    0,
-    title:    result.title ?? '',
-    url:      result.url,
-    duration: 0, // content.js sends actual duration via message
+    type: 'history_visit',
+    tabId: 0,
+    title: result.title ?? '',
+    url: result.url,
+    duration: 0,
   })
 })
 
-// ══════════════════════════════════════════════════════
-// MESSAGES FROM content.js
-// ══════════════════════════════════════════════════════
-
-chrome.runtime.onMessage.addListener((msg, sender) => {
-  if (msg.type === 'page_time' && sender.tab?.id) {
-    // content.js reported how long user spent on a page
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'page_time') {
     push({
-      type:      'history_visit',
-      tabId:     sender.tab.id,
-      title:     msg.title   ?? '',
-      url:       msg.url     ?? '',
-      duration:  msg.duration ?? 0, // seconds
-      timestamp: msg.timestamp,
+      type: 'history_visit',
+      tabId: sender.tab?.id ?? 0,
+      title: message.title ?? '',
+      url: message.url ?? '',
+      duration: message.duration ?? 0,
+      timestamp: message.timestamp ?? Date.now(),
     })
+    sendResponse({ ok: true })
+    return true
   }
 
-  if (msg.type === 'get_status') {
-    // popup.js asking for current status
-    return Promise.resolve({
-      profile,
-      browser,
-      isServerUp,
-      queueSize:  queue.length,
-      activeTabId,
-    })
+  if (message.type === 'force_flush') {
+    flush().then(sendResponse)
+    return true
   }
+
+  if (message.type === 'set_browser_override') {
+    browser = message.browser || browser
+    chrome.storage.local.set({ tabvault_browser_override: browser }).then(async () => {
+      await captureOpenTabsSnapshot()
+      const result = await flush()
+      sendResponse({ ok: true, browser, result })
+    })
+    return true
+  }
+
+  if (message.type === 'set_profile_name') {
+    profile = message.profile?.trim() || 'Default'
+    chrome.storage.local.set({ tabvault_profile_name: profile }).then(() => {
+      sendResponse({ ok: true, profile })
+    })
+    return true
+  }
+
+  if (message.type === 'get_status') {
+    chrome.tabs.query({}).then((tabs) => {
+      sendResponse({
+        profile,
+        browser,
+        isServerUp,
+        queueSize: queue.length,
+        activeTabId,
+        openTabCount: tabs.filter((tab) => isTrackableUrl(tab.url)).length,
+      })
+    })
+    return true
+  }
+
+  return false
 })
-
-// ══════════════════════════════════════════════════════
-// ALARM — flush every 30 seconds
-// ══════════════════════════════════════════════════════
 
 chrome.alarms.create(BATCH_ALARM, { periodInMinutes: 0.5 })
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === BATCH_ALARM) flush()
+chrome.alarms.create(SNAPSHOT_ALARM, { periodInMinutes: 2 })
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === BATCH_ALARM) {
+    await flush()
+  }
+
+  if (alarm.name === SNAPSHOT_ALARM) {
+    await captureOpenTabsSnapshot()
+    await flush()
+  }
 })
 
-// ══════════════════════════════════════════════════════
-// STARTUP — restore any unsent events
-// ══════════════════════════════════════════════════════
+chrome.runtime.onInstalled.addListener(async () => {
+  await loadConfig()
+  await detectProfile()
+  await captureOpenTabsSnapshot()
+  await flush()
+})
 
 async function init() {
-  browser = detectBrowser()
+  await loadConfig()
   await detectProfile()
-
-  // Restore unsent events from previous session
-  try {
-    const stored = await chrome.storage.local.get('tabvault_queue')
-    if (stored.tabvault_queue?.length) {
-      queue = stored.tabvault_queue
-      console.log(`[TabVault] Restored ${queue.length} unsent events from storage`)
-    }
-  } catch (_) {}
-
-  // Snapshot all currently open tabs on startup
-  try {
-    const tabs = await chrome.tabs.query({ currentWindow: true })
-    for (const tab of tabs) {
-      if (!tab.url || tab.url.startsWith('chrome://')) continue
-      tabTitles[tab.id] = { title: tab.title ?? '', url: tab.url ?? '' }
-      push({
-        type:  'tab_opened',
-        tabId: tab.id,
-        title: tab.title ?? '',
-        url:   tab.url ?? '',
-      })
-    }
-  } catch (_) {}
-
-  console.log(`[TabVault] Started — browser: ${browser}, profile: ${profile}, queued: ${queue.length}`)
-  // Flush immediately on start
+  await captureOpenTabsSnapshot()
   await flush()
 }
 

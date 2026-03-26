@@ -34,6 +34,7 @@ model History {
   favicon    String?
   visitedAt  DateTime  @default(now())
   duration   Int       @default(0)
+  note       String?
   categoryId Int?
   category   Category? @relation(fields: [categoryId], references: [id])
   createdAt  DateTime  @default(now())

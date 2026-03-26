@@ -10,12 +10,21 @@ export interface Tab {
 export interface HistoryItem {
   id: number; browser: string; profile: string
   url: string; title: string; favicon?: string
-  visitedAt: string; duration: number; categoryId: number | null
+  visitedAt: string; duration: number; note?: string | null; categoryId: number | null
   category?: { id: number; name: string; emoji: string; color: string }
 }
 export interface Category {
   id: number; name: string; emoji: string; color: string
   _count?: { history: number }
+}
+export interface DetectedBrowser {
+  id: number
+  browserId: string
+  name: string
+  executablePath: string
+  version: string | null
+  extensionInstalled: boolean
+  isEnabled: boolean
 }
 export interface StatsResponse {
   daily:       { date: string; browser: string; profile: string; totalTime: number; tabsOpened: number; visits: number }[]
@@ -23,6 +32,13 @@ export interface StatsResponse {
   totalTime:   number
   totalVisits: number
   browsers:    { browser: string; totalTime: number; visits: number }[]
+  today?:      { totalTime: number; tabsOpened: number; visits: number }
+  trackedBrowsers?: string[]
+}
+export interface SetupResponse {
+  completed: boolean
+  browsers: DetectedBrowser[]
+  trackedBrowsers: DetectedBrowser[]
 }
 
 // ── Fetchers ───────────────────────────────────────────
@@ -59,6 +75,12 @@ const fetchCategories = async () => {
   return r.json() as Promise<Category[]>
 }
 
+const fetchSetup = async () => {
+  const r = await fetch('/api/setup')
+  if (!r.ok) throw new Error('Failed to fetch setup state')
+  return r.json() as Promise<SetupResponse>
+}
+
 // ── Hooks ──────────────────────────────────────────────
 export const useTabs = (browser?: string | null, profile?: string | null) =>
   useQuery({ queryKey: ['tabs', browser, profile], queryFn: () => fetchTabs(browser, profile), refetchInterval: 10_000, staleTime: 5_000 })
@@ -72,16 +94,19 @@ export const useStats = (days = 1) =>
 export const useCategories = () =>
   useQuery({ queryKey: ['categories'], queryFn: fetchCategories, staleTime: 60_000 })
 
+export const useSetupState = () =>
+  useQuery({ queryKey: ['setup'], queryFn: fetchSetup, staleTime: 60_000 })
+
 // ── Mutations ──────────────────────────────────────────
 export const useAssignCategory = () => {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ historyId, categoryId }: { historyId: number; categoryId: number | null }) => {
-      const r = await fetch(`/api/history/${historyId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ categoryId }) })
+    mutationFn: async ({ historyId, categoryId, note }: { historyId: number; categoryId: number | null; note?: string | null }) => {
+      const r = await fetch(`/api/history/${historyId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ categoryId, note }) })
       if (!r.ok) throw new Error('Failed')
       return r.json()
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['history'] }); qc.invalidateQueries({ queryKey: ['categories'] }) },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['history'] }); qc.invalidateQueries({ queryKey: ['categories'] }); qc.invalidateQueries({ queryKey: ['stats'] }) },
   })
 }
 
@@ -94,5 +119,20 @@ export const useCreateCategory = () => {
       return r.json()
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] }),
+  })
+}
+
+export const useAutoCategorizeHistory = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      const r = await fetch('/api/history/auto-categorize', { method: 'POST' })
+      if (!r.ok) throw new Error('Failed')
+      return r.json()
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['history'] })
+      qc.invalidateQueries({ queryKey: ['categories'] })
+    },
   })
 }

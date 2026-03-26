@@ -1,0 +1,59 @@
+appId: com.tabvault.app
+productName: TabVault
+files:
+  - from: .next/standalone
+    to: .
+  - from: public
+    to: public
+  - from: prisma
+    to: prisma
+  - from: electron
+    to: electron
+directories:
+  buildResources: public
+
+win:
+  target:
+    - nsis
+    - portable
+  certificateFile: null
+  certificatePassword: null
+  signingHashAlgorithms:
+    - sha256
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: TabVault
+  installerIcon: public/logo.ico
+  uninstallerIcon: public/logo.ico
+  installerHeaderIcon: public/logo.ico
+
+portable:
+  artifactName: TabVault-${version}-portable.exe
+
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.productivity
+  icon: public/logo.icns
+  signing:
+    identity: null
+
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Office
+  icon: public/logo.png
+
+electronDownload:
+  mirror: https://github.com/electron/electron/releases/download/
+
+publish:
+  provider: github
+  owner: your-github-username
+  repo: tabvault

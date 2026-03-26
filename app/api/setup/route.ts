@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { getDetectedBrowsers, getTrackedBrowsers } from '@/lib/browser-state'
 
 const SETUP_KEY = 'setup_completed'
 
@@ -16,12 +17,12 @@ export async function GET() {
     const completed = setting?.value === 'true'
 
     // Also fetch detected browsers
-    const browsers = await prisma.detectedBrowser.findMany({
-      where:   { isEnabled: true },
-      orderBy: { detectedAt: 'asc' },
-    })
+    const [browsers, trackedBrowsers] = await Promise.all([
+      getDetectedBrowsers(),
+      getTrackedBrowsers(),
+    ])
 
-    return NextResponse.json({ completed, browsers })
+    return NextResponse.json({ completed, browsers, trackedBrowsers })
   } catch {
     // If tables don't exist yet (before migration), return not completed
     return NextResponse.json({ completed: false, browsers: [] })

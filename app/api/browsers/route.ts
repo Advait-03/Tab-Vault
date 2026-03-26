@@ -1,266 +1,222 @@
-// app/api/browsers/route.ts
-// Scans the Windows machine for installed browsers
-// Checks registry paths + common install locations
-// Saves results to DetectedBrowser table
-
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
 import { execSync } from 'child_process'
 import fs from 'fs'
-import path from 'path'
+import { prisma } from '@/lib/prisma'
 
-// ── Browser definitions with ALL possible Windows paths ──
 const BROWSER_DEFINITIONS = [
   {
-    id:   'chrome',
+    id: 'chrome',
     name: 'Google Chrome',
-    icon: '🔴',
-    color: '#F4845F',
+    icon: 'C',
+    color: '#ea4335',
     paths: [
       'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
       'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-      process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
-      process.env.PROGRAMFILES + '\\Google\\Chrome\\Application\\chrome.exe',
+      '%LOCALAPPDATA%\\Google\\Chrome\\Application\\chrome.exe',
     ],
-    registryKeys: [
-      'HKLM\\SOFTWARE\\Google\\Chrome',
-      'HKCU\\SOFTWARE\\Google\\Chrome',
+    registryPaths: [
+      'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe',
+      'HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe',
     ],
-    extensionUrl:  'chrome://extensions',
-    storeUrl:      'https://chrome.google.com/webstore',
-    installGuide:  'chrome://extensions → Developer Mode ON → Load Unpacked → select /extension folder',
+    extensionUrl: 'chrome://extensions',
+    installGuide: 'Open Extensions, enable Developer Mode, then load the local extension folder.',
   },
   {
-    id:   'edge',
+    id: 'edge',
     name: 'Microsoft Edge',
-    icon: '🔵',
-    color: '#3BA0E9',
+    icon: 'E',
+    color: '#1a73e8',
     paths: [
-      'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
       'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-      process.env.PROGRAMFILES + '\\Microsoft\\Edge\\Application\\msedge.exe',
-      // Edge is built into Windows 10/11 — check system path
-      'C:\\Windows\\SystemApps\\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\\MicrosoftEdge.exe',
+      'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+      '%LOCALAPPDATA%\\Microsoft\\Edge\\Application\\msedge.exe',
     ],
-    registryKeys: [
-      'HKLM\\SOFTWARE\\Microsoft\\Edge',
-      'HKCU\\SOFTWARE\\Microsoft\\Edge',
+    registryPaths: [
+      'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\msedge.exe',
+      'HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\msedge.exe',
     ],
-    extensionUrl:  'edge://extensions',
-    storeUrl:      'https://microsoftedge.microsoft.com/addons',
-    installGuide:  'edge://extensions → Developer Mode ON → Load Unpacked → select /extension folder',
-    alwaysPresent: true, // Edge comes with Windows 10/11
+    extensionUrl: 'edge://extensions',
+    installGuide: 'Open Extensions, enable Developer Mode, then load the local extension folder.',
   },
   {
-    id:   'brave',
+    id: 'brave',
     name: 'Brave Browser',
-    icon: '🦁',
-    color: '#A78BFA',
+    icon: 'B',
+    color: '#fb542b',
     paths: [
       'C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
       'C:\\Program Files (x86)\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
-      process.env.LOCALAPPDATA + '\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
+      '%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
     ],
-    registryKeys: [
-      'HKLM\\SOFTWARE\\BraveSoftware\\Brave-Browser',
-      'HKCU\\SOFTWARE\\BraveSoftware\\Brave-Browser',
+    registryPaths: [
+      'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\brave.exe',
+      'HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\brave.exe',
     ],
-    extensionUrl:  'brave://extensions',
-    storeUrl:      'https://chrome.google.com/webstore',
-    installGuide:  'brave://extensions → Developer Mode ON → Load Unpacked → select /extension folder',
+    extensionUrl: 'brave://extensions',
+    installGuide: 'Open Extensions, enable Developer Mode, then load the local extension folder.',
   },
   {
-    id:   'firefox',
+    id: 'firefox',
     name: 'Mozilla Firefox',
-    icon: '🟠',
-    color: '#FF9500',
+    icon: 'F',
+    color: '#ff8c00',
     paths: [
       'C:\\Program Files\\Mozilla Firefox\\firefox.exe',
       'C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe',
-      process.env.PROGRAMFILES + '\\Mozilla Firefox\\firefox.exe',
+      '%LOCALAPPDATA%\\Mozilla Firefox\\firefox.exe',
     ],
-    registryKeys: [
-      'HKLM\\SOFTWARE\\Mozilla\\Mozilla Firefox',
-      'HKCU\\SOFTWARE\\Mozilla\\Mozilla Firefox',
+    registryPaths: [
+      'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\firefox.exe',
+      'HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\firefox.exe',
     ],
-    extensionUrl:  'about:debugging#/runtime/this-firefox',
-    storeUrl:      'https://addons.mozilla.org',
-    installGuide:  'about:debugging → This Firefox → Load Temporary Add-on → select extension/manifest.json',
-    note:          'Firefox uses a slightly different extension format. See extension/firefox-manifest.json',
+    extensionUrl: 'about:debugging#/runtime/this-firefox',
+    installGuide: 'Open about:debugging, then load the extension temporary manifest from the project folder.',
   },
   {
-    id:   'opera',
+    id: 'opera',
     name: 'Opera',
-    icon: '🎭',
-    color: '#FF3B30',
+    icon: 'O',
+    color: '#d93025',
     paths: [
-      'C:\\Program Files\\Opera\\launcher.exe',  // Opera uses launcher.exe
+      'C:\\Program Files\\Opera\\launcher.exe',
       'C:\\Program Files (x86)\\Opera\\launcher.exe',
-      process.env.LOCALAPPDATA + '\\Programs\\Opera\\launcher.exe',
-      'C:\\Program Files\\Opera GX\\launcher.exe',  // Opera GX
+      '%LOCALAPPDATA%\\Programs\\Opera\\launcher.exe',
+      'C:\\Program Files\\Opera GX\\launcher.exe',
       'C:\\Program Files (x86)\\Opera GX\\launcher.exe',
     ],
-    registryKeys: [
-      'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Opera',
-      'HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Opera',
-      'HKLM\\SOFTWARE\\Opera Software',
-      'HKCU\\SOFTWARE\\Opera Software',
+    registryPaths: [
+      'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\launcher.exe',
+      'HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\launcher.exe',
     ],
-    extensionUrl:  'opera://extensions',
-    storeUrl:      'https://addons.opera.com',
-    installGuide:  'opera://extensions → Developer Mode ON → Load Unpacked → select /extension folder',
+    extensionUrl: 'opera://extensions',
+    installGuide: 'Open Extensions, enable Developer Mode, then load the local extension folder.',
   },
-]
+] as const
 
-// ── Check if a file path exists ──────────────────────────
-function pathExists(p: string): boolean {
+function expandEnvPath(rawPath: string) {
+  return rawPath.replace(/%([^%]+)%/g, (_match, variable) => process.env[variable] ?? '')
+}
+
+function pathExists(filePath: string) {
   try {
-    return fs.existsSync(p)
+    return filePath.length > 0 && fs.existsSync(filePath)
   } catch {
     return false
   }
 }
 
-// ── Check Windows registry for a browser ────────────────
-function checkRegistry(key: string): boolean {
+function readRegistryDefaultValue(key: string) {
   try {
-    execSync(`reg query "${key}"`, { stdio: 'pipe' })
-    return true
+    const output = execSync(`reg query "${key}" /ve`, { stdio: 'pipe' }).toString()
+    const match = output.match(/REG_\w+\s+(.+)\s*$/m)
+    return match?.[1]?.trim() ?? null
   } catch {
-    return false
+    return null
   }
 }
 
-// ── Try to get browser version from exe ─────────────────
-function getBrowserVersion(exePath: string): string | null {
+function getBrowserVersion(executablePath: string) {
   try {
     const result = execSync(
-      `powershell -command "(Get-Item '${exePath}').VersionInfo.FileVersion"`,
+      `powershell -command "(Get-Item '${executablePath.replace(/'/g, "''")}').VersionInfo.ProductVersion"`,
       { stdio: 'pipe', timeout: 3000 }
-    ).toString().trim()
+    )
+      .toString()
+      .trim()
     return result || null
   } catch {
     return null
   }
 }
 
-// ── Detect a single browser ──────────────────────────────
-function detectBrowser(def: typeof BROWSER_DEFINITIONS[0]): {
-  found: boolean
-  path: string
-  version: string | null
-} {
-  // 1. Check file system paths
-  for (const p of def.paths) {
-    if (p && pathExists(p)) {
-      const version = getBrowserVersion(p)
-      return { found: true, path: p, version }
-    }
-  }
-
-  // 2. Check Windows registry
-  for (const key of def.registryKeys) {
-    if (checkRegistry(key)) {
-      return { found: true, path: 'registry-detected', version: null }
-    }
-  }
-
-  // 3. Edge is always present on Windows 10/11
-  if (def.alwaysPresent) {
-    return { found: true, path: 'built-in', version: null }
-  }
-
-  return { found: false, path: '', version: null }
-}
-
-// ── Detect browsers on Mac/Linux ────────────────────────
-function detectBrowserUnix(def: typeof BROWSER_DEFINITIONS[0]) {
-  // On Mac, browsers are in /Applications/
-  // On Linux, use 'which' command
-  const isMac = process.platform === 'darwin'
-  
-  if (isMac) {
-    const macPaths = [
-      `/Applications/${def.id === 'chrome' ? 'Google Chrome' : def.id === 'edge' ? 'Microsoft Edge' : def.id === 'brave' ? 'Brave Browser' : 'Firefox'}.app/Contents/MacOS/${def.id === 'chrome' ? 'Google Chrome' : def.id === 'edge' ? 'Microsoft Edge' : def.id === 'brave' ? 'Brave Browser' : 'firefox'}`,
-      `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`,
-      `/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge`,
-      `/Applications/Brave Browser.app/Contents/MacOS/Brave Browser`,
-      `/Applications/Firefox.app/Contents/MacOS/firefox`,
-    ]
-    for (const p of macPaths) {
-      if (pathExists(p)) {
-        return { found: true, path: p, version: null }
+function detectWindowsBrowser(definition: (typeof BROWSER_DEFINITIONS)[number]) {
+  for (const rawPath of definition.paths) {
+    const executablePath = expandEnvPath(rawPath)
+    if (pathExists(executablePath)) {
+      return {
+        found: true,
+        executablePath,
+        version: getBrowserVersion(executablePath),
       }
     }
-  } else {
-    // Linux — use 'which' command
-    try {
-      const cmd = execSync(`which ${def.id}`, { stdio: 'pipe', timeout: 1000 }).toString().trim()
-      if (cmd) return { found: true, path: cmd, version: null }
-    } catch (_) {}
   }
-  
-  return { found: false, path: '', version: null }
-}
 
-// ── GET /api/browsers — scan and return results ──────────
-export async function GET() {
-  const isWindows = process.platform === 'win32'
-
-  const results = []
-
-  for (const def of BROWSER_DEFINITIONS) {
-    // Detect based on OS
-    const detection = isWindows
-      ? detectBrowser(def)
-      : detectBrowserUnix(def)
-
-    if (detection.found) {
-      // Save/update in database
-      const saved = await prisma.detectedBrowser.upsert({
-        where:  { browserId: def.id },
-        create: {
-          browserId:      def.id,
-          name:           def.name,
-          executablePath: detection.path,
-          version:        detection.version,
-          isEnabled:      true,
-        },
-        update: {
-          executablePath: detection.path,
-          version:        detection.version,
-        },
-      })
-
-      results.push({
-        ...saved,
-        icon:         def.icon,
-        color:        def.color,
-        extensionUrl: def.extensionUrl,
-        installGuide: def.installGuide,
-        note:         (def as any).note,
-      })
+  for (const registryKey of definition.registryPaths) {
+    const registryPath = readRegistryDefaultValue(registryKey)
+    if (registryPath && pathExists(registryPath)) {
+      return {
+        found: true,
+        executablePath: registryPath,
+        version: getBrowserVersion(registryPath),
+      }
     }
   }
 
+  return { found: false, executablePath: '', version: null }
+}
+
+export async function GET() {
+  if (process.platform !== 'win32') {
+    return NextResponse.json({ detected: [], platform: process.platform, total: 0 })
+  }
+
+  const detected = []
+
+  for (const definition of BROWSER_DEFINITIONS) {
+    const result = detectWindowsBrowser(definition)
+    if (!result.found) continue
+
+    const saved = await prisma.detectedBrowser.upsert({
+      where: { browserId: definition.id },
+      create: {
+        browserId: definition.id,
+        name: definition.name,
+        executablePath: result.executablePath,
+        version: result.version,
+        isEnabled: true,
+      },
+      update: {
+        name: definition.name,
+        executablePath: result.executablePath,
+        version: result.version,
+        isEnabled: true,
+      },
+    })
+
+    detected.push({
+      ...saved,
+      icon: definition.icon,
+      color: definition.color,
+      extensionUrl: definition.extensionUrl,
+      installGuide: definition.installGuide,
+    })
+  }
+
+  await prisma.detectedBrowser.updateMany({
+    where: {
+      browserId: { notIn: detected.map((browser) => browser.browserId) },
+    },
+    data: { isEnabled: false },
+  })
+
   return NextResponse.json({
-    detected: results,
+    detected,
     platform: process.platform,
-    total:    results.length,
+    total: detected.length,
   })
 }
 
-// ── PATCH /api/browsers — mark extension as installed ────
 export async function PATCH(req: NextRequest) {
   const body = await req.json()
   const { browserId, extensionInstalled, isEnabled } = body
 
   const updated = await prisma.detectedBrowser.update({
     where: { browserId },
-    data:  {
-      ...(extensionInstalled !== undefined ? { extensionInstalled } : {}),
-      ...(isEnabled          !== undefined ? { isEnabled }          : {}),
+    data: {
+      ...(typeof extensionInstalled === 'boolean' ? { extensionInstalled } : {}),
+      ...(typeof isEnabled === 'boolean' ? { isEnabled } : {}),
     },
   })
+
   return NextResponse.json(updated)
 }

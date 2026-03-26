@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
+import { ThemeProvider } from 'next-themes'
 
 function SetupGuard({ children }: { children: React.ReactNode }) {
   const router   = useRouter()
@@ -60,10 +61,12 @@ function Providers({ children }: { children: React.ReactNode }) {
     })
   )
   return (
-    <QueryClientProvider client={queryClient}>
-      <SetupGuard>{children}</SetupGuard>
-      {process.env.NODE_ENV === 'development' && <ReactQueryDevtools initialIsOpen={false}/>}
-    </QueryClientProvider>
+    <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+      <QueryClientProvider client={queryClient}>
+        <SetupGuard>{children}</SetupGuard>
+        {process.env.NODE_ENV === 'development' && <ReactQueryDevtools initialIsOpen={false}/>}
+      </QueryClientProvider>
+    </ThemeProvider>
   )
 }
 

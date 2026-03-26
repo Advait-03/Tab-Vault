@@ -1,84 +1,116 @@
 'use client'
+
+import Link from 'next/link'
+import { Database, FolderKanban, History } from 'lucide-react'
 import Topbar from '@/components/Topbar'
 import BarChart from '@/components/BarChart'
 import StatsRow from '@/components/StatsRow'
 import BrowserLauncher from '@/components/BrowserLauncher'
 import { useStats } from '@/hooks/useQueries'
-import { BROWSER_COLORS, BROWSER_NAMES, formatSeconds } from '@/lib/utils'
+import { BROWSER_COLORS, BROWSER_NAMES, formatSeconds, toLocalDateKey } from '@/lib/utils'
 
 export default function DashboardPage() {
   return (
-    <div className="flex flex-col min-h-screen">
-      <Topbar/>
-      <main className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-
-        {/* Left 70% */}
-        <div className="flex-1 lg:flex-[7] overflow-y-auto p-4 md:p-6 flex flex-col gap-4 md:gap-5">
-          <StatsRow/>
-          <BarChart/>
-          <TodayBreakdown/>
+    <div className="min-h-screen">
+      <Topbar />
+      <main className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6 md:px-6 xl:flex-row">
+        <div className="flex min-w-0 flex-1 flex-col gap-6">
+          <StatsRow />
+          <BarChart />
+          <TodayBreakdown />
         </div>
 
-        {/* Right 30% */}
-        <div className="lg:flex-[3] lg:max-w-xs xl:max-w-sm border-t lg:border-t-0 lg:border-l
-                        border-white/[0.07] overflow-y-auto p-4 flex flex-col gap-4">
-          <BrowserLauncher/>
-          <div className="bh-card p-4">
-            <div className="text-[10px] font-black text-bh-text3 uppercase tracking-widest font-mono mb-3">
-              Quick Actions
-            </div>
-            <div className="flex flex-col gap-2">
-              {[
-                { icon: '⚡', label: 'View All Activity', href: '/activity' },
-                { icon: '📁', label: 'Manage Categories',  href: '/activity' },
-                { icon: '🗄',  label: 'Browse Database',    href: 'http://localhost:5555', ext: true },
-              ].map((a) => (
-                <a key={a.label} href={a.href} target={a.ext ? '_blank' : undefined} rel="noopener noreferrer"
-                  className="flex items-center gap-3 px-3 py-2 rounded-xl border border-white/[0.07]
-                             hover:border-bh-green/30 hover:bg-bh-s2 transition-all text-sm font-semibold
-                             text-bh-text2 hover:text-bh-text">
-                  <span>{a.icon}</span>{a.label}
-                  <span className="ml-auto text-bh-text3">→</span>
-                </a>
-              ))}
+        <aside className="flex w-full flex-col gap-6 xl:max-w-sm">
+          <BrowserLauncher />
+          <div className="bh-card p-5">
+            <div className="text-sm font-semibold text-bh-text">Quick actions</div>
+            <div className="mt-4 flex flex-col gap-3">
+              <ActionLink href="/activity" icon={History} title="Open activity" description="Inspect current tabs and recent visits." />
+              <ActionLink href="/activity" icon={FolderKanban} title="Manage categories" description="Organize browsing history into categories." />
+              <ActionLink href="http://localhost:5555" icon={Database} title="Prisma Studio" description="Browse the local database directly." external />
             </div>
           </div>
-        </div>
+        </aside>
       </main>
     </div>
   )
 }
 
+function ActionLink({
+  href,
+  title,
+  description,
+  icon: Icon,
+  external,
+}: {
+  href: string
+  title: string
+  description: string
+  icon: typeof History
+  external?: boolean
+}) {
+  return (
+    <Link
+      href={href}
+      target={external ? '_blank' : undefined}
+      rel={external ? 'noopener noreferrer' : undefined}
+      className="rounded-3xl border border-black/8 bg-bh-s2 p-4 transition-colors hover:bg-white"
+    >
+      <div className="flex items-center gap-3">
+        <div className="rounded-2xl bg-white p-3 text-bh-green shadow-sm">
+          <Icon className="h-4 w-4" />
+        </div>
+        <div>
+          <div className="text-sm font-medium text-bh-text">{title}</div>
+          <div className="mt-1 text-xs text-bh-text3">{description}</div>
+        </div>
+      </div>
+    </Link>
+  )
+}
+
 function TodayBreakdown() {
-  const { data: stats } = useStats()
-  if (!stats?.browsers?.length) return null
-  const totalTime = stats.browsers.reduce((s: number, b: any) => s + b.totalTime, 0)
+  const { data: stats } = useStats(30)
+  if (!stats?.daily?.length) return null
+
+  const today = toLocalDateKey(new Date())
+  const todayRows = stats.daily.filter((row) => row.date === today)
+  if (!todayRows.length) return null
+
+  const browserMap = new Map<string, number>()
+  for (const row of todayRows) {
+    browserMap.set(row.browser, (browserMap.get(row.browser) ?? 0) + row.totalTime)
+  }
+
+  const browsers = Array.from(browserMap.entries())
+    .map(([browser, totalTime]) => ({ browser, totalTime }))
+    .sort((a, b) => b.totalTime - a.totalTime)
+
+  const totalTime = browsers.reduce((sum, browser) => sum + browser.totalTime, 0)
 
   return (
     <div className="bh-card p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-black text-sm">Today's Breakdown</h3>
-        <span className="text-[11px] font-mono text-bh-text3">
-          {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-        </span>
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-bh-text">Today's split</h3>
+          <p className="text-sm text-bh-text3">How today’s tracked time is distributed.</p>
+        </div>
+        <span className="text-xs font-mono text-bh-text3">{new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
       </div>
-      <div className="flex flex-col gap-3">
-        {stats.browsers.map((b: any) => {
-          const pct   = totalTime > 0 ? Math.round((b.totalTime / totalTime) * 100) : 0
-          const color = BROWSER_COLORS[b.browser] ?? '#8B86AE'
+
+      <div className="mt-5 space-y-4">
+        {browsers.map((browser) => {
+          const percentage = totalTime > 0 ? Math.round((browser.totalTime / totalTime) * 100) : 0
+          const color = BROWSER_COLORS[browser.browser] ?? '#1a73e8'
           return (
-            <div key={b.browser} className="flex items-center gap-3">
-              <div className="w-20 text-xs font-bold shrink-0" style={{ color }}>
-                {BROWSER_NAMES[b.browser] ?? b.browser}
+            <div key={browser.browser}>
+              <div className="mb-1 flex items-center justify-between text-sm">
+                <span className="font-medium text-bh-text">{BROWSER_NAMES[browser.browser] ?? browser.browser}</span>
+                <span className="font-mono text-bh-text2">{formatSeconds(browser.totalTime)} · {percentage}%</span>
               </div>
-              <div className="flex-1 h-2 bg-bh-s3 rounded-full overflow-hidden">
-                <div className="h-full rounded-full transition-all duration-700"
-                     style={{ width: `${pct}%`, background: color }}/>
+              <div className="h-2 rounded-full bg-bh-s3">
+                <div className="h-2 rounded-full" style={{ width: `${percentage}%`, backgroundColor: color }} />
               </div>
-              <div className="text-[11px] font-mono text-bh-text2 w-12 text-right shrink-0">
-                {formatSeconds(b.totalTime)}
-              </div>
-              <div className="text-[10px] font-mono text-bh-text3 w-8 text-right shrink-0">{pct}%</div>
             </div>
           )
         })}

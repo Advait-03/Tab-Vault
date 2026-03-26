@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 
+export const dynamic = 'force-dynamic'
+
 const CreateCategorySchema = z.object({
   name: z.string().min(1).max(50),
   emoji: z.string().default('📁'),

@@ -9,7 +9,10 @@ export async function PATCH(
   const id   = Number(params.id)
   const updated = await prisma.history.update({
     where:   { id },
-    data:    { categoryId: body.categoryId ?? null },
+    data:    {
+      categoryId: body.categoryId ?? null,
+      ...(typeof body.note === 'string' ? { note: body.note } : {}),
+    },
     include: { category: true },
   })
   return NextResponse.json(updated)
